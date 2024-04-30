@@ -1,0 +1,41 @@
+﻿<MudDialog Style="max-width: 1096px;">
+    <TitleContent>
+        <MudText Typo="Typo.h6">Pick a Card</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudAutocomplete T="Card" Class="mb-3" ValueChanged="SelectCard" Label="Card" ResetValueOnEmptyText="true" SelectValueOnTab="true"
+                         SearchFunc="SearchCard" Required="true" MaxItems="null" Clearable="true" Immediate="true" AutoFocus="true">
+            <ItemTemplate Context="item">
+                <MudImage Src="@item.GetImgUrl()" Width="40" Height="56"/>
+                @item.ToString()
+            </ItemTemplate>
+            <NoItemsTemplate>
+                <MudText Typo="Typo.body2">No cards found!</MudText>
+            </NoItemsTemplate>
+        </MudAutocomplete>
+        <div class="d-flex flex-wrap">
+            @foreach (var card in Cards) {
+                <div @onclick="() => SelectCard(card)" class="cur-pointer">
+                    <MudImage Src="@card.GetImgUrl()" Width="80" Height="102"/>
+                </div>
+            }
+        </div>
+    </DialogContent>
+    <DialogActions>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; } = null!;
+    private Card[] Cards { get; set; } = new Deck().Cards.ToArray();
+
+    private void SelectCard(Card card) {
+        MudDialog.Close(DialogResult.Ok(card));
+    }
+
+    private Task<IEnumerable<Card>> SearchCard(string search) {
+        if (string.IsNullOrEmpty(search) || string.IsNullOrWhiteSpace(search)) return Task.FromResult(Cards.AsEnumerable());
+        return Task.FromResult(Cards.Where(card => card.ToString().Contains(search)));
+    }
+
+}

@@ -1,0 +1,183 @@
+﻿@page "/blackjack/counter"
+
+@inject IDialogService DialogService
+
+<div class="row">
+    <div class="col-md-9">
+        <div class="m-3">
+            <div class="p-2 d-flex">
+                <MudNumericField @bind-Value="DeckAmount"/>
+                <MudButton Class="ml-3 mt-2" Variant="Variant.Filled" Color="Color.Primary" OnClick="Initialize">Init</MudButton>
+            </div>
+
+            <MudPaper Class="p-3">
+                <div class="d-flex justify-content-between">
+                    <MudText Typo="Typo.h5">Current Round</MudText>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="StartNewRound">New Round</MudButton>
+                </div>
+
+                <MudText Typo="Typo.h6">Player Hand: @CurrentRound.CalculatePlayerSum()</MudText>
+                <MudButton Class="mb-2" Variant="Variant.Filled" Color="Color.Primary" OnClick="AddPlayerCard">Add Card</MudButton>
+                <br/>
+                @foreach (var card in CurrentRound.PlayerHand) {
+                    <div class="img-parent">
+                        <MudIconButton Class="top-right-abs" Icon="@Icons.Material.Filled.Cancel" OnClick="() => RemovePlayerCard(card)" Color="Color.Dark"/>
+                        <MudImage Src="@card.GetImgUrl()" Width="100" Height="144"/>
+                    </div>
+                }
+                <MudText Typo="Typo.h6">Dealer Hand: @CurrentRound.CalculateHouseSum()</MudText>
+                <MudButton Class="mb-2" Variant="Variant.Filled" Color="Color.Primary" OnClick="AddHouseCard">Add Card</MudButton>
+                <br/>
+                @foreach (var card in CurrentRound.HouseHand) {
+                    <div class="img-parent">
+                        <MudIconButton Class="top-right-abs" Icon="@Icons.Material.Filled.Cancel" OnClick="() => RemoveHouseCard(card)" Color="Color.Dark"/>
+                        <MudImage Src="@card.GetImgUrl()" Width="100" Height="144"/>
+                    </div>
+                }
+            </MudPaper>
+
+            <div class="d-flex">
+                @foreach (var round in ReversePreviousRounds) {
+                    <MudPaper Class="m-1" Outlined="true" Style="@($"background-color: {GetBackgroundStyleForWin(round.HasPlayerWon())};")">
+                        <MudText Typo="Typo.h6" Color="Color.Dark">P: @round.CalculatePlayerSum() - H: @round.CalculateHouseSum()</MudText>
+                    </MudPaper>
+                }
+            </div>
+
+            <MudExpansionPanel Text="Previous Rounds">
+                <MudVirtualize Items="ReversePreviousRounds" IsEnabled="true" Context="round">
+                    <MudPaper Class="m-3 p-3" Outlined="true" Style="@($"border-color: {GetBackgroundStyleForWin(round.HasPlayerWon())};")">
+                        <MudText Typo="Typo.h6">Player Hand: @round.CalculatePlayerSum()</MudText>
+                        <br/>
+                        @foreach (var card in round.PlayerHand) {
+                            <MudImage Src="@card.GetImgUrl()" Width="100" Height="144"/>
+                        }
+                        <MudText Typo="Typo.h6">Dealer Hand: @round.CalculateHouseSum()</MudText>
+                        <br/>
+                        @foreach (var card in round.HouseHand) {
+                            <MudImage Src="@card.GetImgUrl()" Width="100" Height="144"/>
+                        }
+                    </MudPaper>
+                </MudVirtualize>
+            </MudExpansionPanel>
+
+        </div>
+    </div>
+    <MudDrawer Anchor="Anchor.Right" Open="true" Variant="DrawerVariant.Persistent" Elevation="2">
+        @{
+            var changes = GetChances();
+        }
+        <MudText Typo="Typo.h6">Chance for 10: @(MathF.Round(changes[10] + changes[11] + changes[12] + changes[13], 2))%</MudText>
+        @if (Cards is not null) {
+            foreach (var (key, value) in changes) {
+                var card = AllCards.First(card => card.GetRank() == key);
+                var amountLeft = Cards.Count(c => c.GetRank() == key);
+                <div class="d-flex my-3 mx-1">
+                    <MudImage Class="mr-3" Src="@card.GetImgUrl()" Width="50" Height="72"/>
+                    <div class="flex-grow-1">
+                        <MudText>@card.ToString()</MudText>
+                        <MudText>@MathF.Round(value, 2)% - @amountLeft</MudText>
+                        <MudProgressLinear Value="@value" Max="100" Color="Color.Primary"/>
+                    </div>
+                </div>
+            }
+        }
+        <div style="min-height: 100px"></div>
+
+    </MudDrawer>
+</div>
+
+@code {
+
+    private static readonly DialogOptions DialogOptions = new() {
+        MaxWidth = MaxWidth.Large,
+        FullWidth = true
+    };
+
+    private int DeckAmount { get; set; } = 8;
+
+    private List<Card> Cards { get; set; } = null!;
+
+    private Card[] AllCards { get; set; } = new Deck().Cards.ToArray();
+
+    private BjRound CurrentRound { get; set; } = new();
+    private List<BjRound> ReversePreviousRounds { get; set; } = [];
+
+    private static Color GetColorForWin(bool? playerWon) {
+        return playerWon switch {
+            true => Color.Success,
+            false => Color.Error,
+            null => Color.Warning
+        };
+    }
+
+    private static string GetBackgroundStyleForWin(bool? playerWon) {
+        return playerWon switch {
+            true => "var(--mud-palette-success)",
+            false => "var(--mud-palette-error)",
+            _ => "var(--mud-palette-warning)"
+        };
+    }
+
+    protected override void OnInitialized() {
+        Initialize();
+    }
+
+    private void Initialize() {
+        Cards = Enumerable.Range(0, DeckAmount)
+            .Select(_ => new Deck())
+            .SelectMany(deck => deck.Cards)
+            .ToList();
+    }
+
+    private Dictionary<int, float> GetChances() {
+        var chances = new Dictionary<int, float>();
+        for (var i = 1; i < 14; i++) {
+            var count = Cards.Count(card => card.GetRank() == i);
+            chances[i] = (float)count / Cards.Count;
+        }
+
+        var sum = chances.Values.Sum();
+        foreach (var key in chances.Keys.ToArray()) chances[key] = chances[key] / sum * 100;
+
+        return chances.OrderByDescending(pair => pair.Value).ToDictionary(pair => pair.Key, pair => pair.Value);
+    }
+
+    private void RemoveCard(Card card) {
+        Cards.Remove(card);
+    }
+
+    private async Task AddPlayerCard() {
+        var dialog = await DialogService.ShowAsync<PickCardDialog>("Add Card", DialogOptions);
+        var result = await dialog.Result;
+        if (!result.Canceled && result.Data is Card card) {
+            CurrentRound.PlayerHand.Add(card);
+            RemoveCard(card);
+        }
+    }
+
+    private async Task AddHouseCard() {
+        var dialog = await DialogService.ShowAsync<PickCardDialog>("Add Card", DialogOptions);
+        var result = await dialog.Result;
+        if (!result.Canceled && result.Data is Card card) {
+            CurrentRound.HouseHand.Add(card);
+            RemoveCard(card);
+        }
+    }
+
+    private void StartNewRound() {
+        ReversePreviousRounds.Insert(0, CurrentRound);
+        CurrentRound = new BjRound();
+    }
+
+    private void RemovePlayerCard(Card card) {
+        CurrentRound.PlayerHand.Remove(card);
+        Cards.Add(card);
+    }
+    
+    private void RemoveHouseCard(Card card) {
+        CurrentRound.HouseHand.Remove(card);
+        Cards.Add(card);
+    }
+
+}
