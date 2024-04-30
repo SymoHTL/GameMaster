@@ -1,0 +1,9 @@
+﻿services:
+  gamemaster:
+    container_name: gamemaster
+    image: gamemaster
+    build:
+      context: .
+      dockerfile: View/Dockerfile
+    network_mode: "host"
+    restart: always
