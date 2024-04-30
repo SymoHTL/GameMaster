@@ -1,6 +1,12 @@
 ﻿@page "/blackjack/counter"
+@using System.Diagnostics.Contracts
+@using Model.Factories
 
 @inject IDialogService DialogService
+
+@{
+    var chances = GetChances();
+}
 
 <div class="row">
     <div class="col-md-9">
@@ -19,12 +25,21 @@
                 <MudText Typo="Typo.h6">Player Hand: @CurrentRound.CalculatePlayerSum()</MudText>
                 <MudButton Class="mb-2" Variant="Variant.Filled" Color="Color.Primary" OnClick="AddPlayerCard">Add Card</MudButton>
                 <br/>
-                @foreach (var card in CurrentRound.PlayerHand) {
-                    <div class="img-parent">
-                        <MudIconButton Class="top-right-abs" Icon="@Icons.Material.Filled.Cancel" OnClick="() => RemovePlayerCard(card)" Color="Color.Dark"/>
-                        <MudImage Src="@card.GetImgUrl()" Width="100" Height="144"/>
+                <div class="d-flex justify-content-between">
+                    <div>
+                        @foreach (var card in CurrentRound.PlayerHand) {
+                            <div class="img-parent">
+                                <MudIconButton Class="top-right-abs" Icon="@Icons.Material.Filled.Cancel" OnClick="() => RemovePlayerCard(card)" Color="Color.Dark"/>
+                                <MudImage Src="@card.GetImgUrl()" Width="100" Height="144"/>
+                            </div>
+                        }
                     </div>
-                }
+                    <MudPaper Class="text-center" Outlined="true" Style="border-color: var(--mud-palette-info)" Elevation="0">
+                        <MudText Typo="Typo.h6">Chance to not bust: @MathF.Round(GetChanceForNonBust(chances), 2)%</MudText>
+                        <MudText Typo="Typo.h6">Chance to bust: @MathF.Round(GetChanceForBust(chances), 2)%</MudText>
+                        <MudText Typo="Typo.h6">Chance for 21: @MathF.Round(GetChanceFor21Points(chances), 2)%</MudText>
+                    </MudPaper>
+                </div>
                 <MudText Typo="Typo.h6">Dealer Hand: @CurrentRound.CalculateHouseSum()</MudText>
                 <MudButton Class="mb-2" Variant="Variant.Filled" Color="Color.Primary" OnClick="AddHouseCard">Add Card</MudButton>
                 <br/>
@@ -36,7 +51,7 @@
                 }
             </MudPaper>
 
-            <div class="d-flex">
+            <div class="d-flex overflow-hidden flex-nowrap">
                 @foreach (var round in ReversePreviousRounds) {
                     <MudPaper Class="m-1" Outlined="true" Style="@($"background-color: {GetBackgroundStyleForWin(round.HasPlayerWon())};")">
                         <MudText Typo="Typo.h6" Color="Color.Dark">P: @round.CalculatePlayerSum() - H: @round.CalculateHouseSum()</MudText>
@@ -64,14 +79,11 @@
         </div>
     </div>
     <MudDrawer Anchor="Anchor.Right" Open="true" Variant="DrawerVariant.Persistent" Elevation="2">
-        @{
-            var changes = GetChances();
-        }
-        <MudText Typo="Typo.h6">Chance for 10: @(MathF.Round(changes[10] + changes[11] + changes[12] + changes[13], 2))%</MudText>
+
+        <MudText Typo="Typo.h6">Chance for 10: @(MathF.Round(GetChanceFor10Points(chances), 2))%</MudText>
         @if (Cards is not null) {
-            foreach (var (key, value) in changes) {
-                var card = AllCards.First(card => card.GetRank() == key);
-                var amountLeft = Cards.Count(c => c.GetRank() == key);
+            foreach (var (card, value) in chances) {
+                var amountLeft = Cards.Count(c => c.GetRank() == card.GetRank());
                 <div class="d-flex my-3 mx-1">
                     <MudImage Class="mr-3" Src="@card.GetImgUrl()" Width="50" Height="72"/>
                     <div class="flex-grow-1">
@@ -98,18 +110,9 @@
 
     private List<Card> Cards { get; set; } = null!;
 
-    private Card[] AllCards { get; set; } = new Deck().Cards.ToArray();
-
     private BjRound CurrentRound { get; set; } = new();
     private List<BjRound> ReversePreviousRounds { get; set; } = [];
 
-    private static Color GetColorForWin(bool? playerWon) {
-        return playerWon switch {
-            true => Color.Success,
-            false => Color.Error,
-            null => Color.Warning
-        };
-    }
 
     private static string GetBackgroundStyleForWin(bool? playerWon) {
         return playerWon switch {
@@ -130,17 +133,54 @@
             .ToList();
     }
 
-    private Dictionary<int, float> GetChances() {
-        var chances = new Dictionary<int, float>();
+    private Dictionary<Card, float> GetChances() {
+        var chances = new Dictionary<Card, float>();
         for (var i = 1; i < 14; i++) {
             var count = Cards.Count(card => card.GetRank() == i);
-            chances[i] = (float)count / Cards.Count;
+            chances[CardFactory.FromRank(Suit.Clubs, i)] = (float)count / Cards.Count;
         }
 
         var sum = chances.Values.Sum();
         foreach (var key in chances.Keys.ToArray()) chances[key] = chances[key] / sum * 100;
 
         return chances.OrderByDescending(pair => pair.Value).ToDictionary(pair => pair.Key, pair => pair.Value);
+    }
+
+    private float GetChanceForNonBust(Dictionary<Card, float> chances) => GetChanceFor(chances, (cardPoints, maxPossible) => cardPoints <= maxPossible);
+    private float GetChanceForBust(Dictionary<Card, float> chances) => GetChanceFor(chances, (cardPoints, maxPossible) => cardPoints > maxPossible);
+    private float GetChanceFor21Points(Dictionary<Card, float> chances) => GetChanceFor(chances, (cardPoints, maxPossible) => cardPoints == maxPossible);
+
+    private float GetChanceFor(Dictionary<Card, float> chances, Func<int, int, bool> condition) {
+        var current = CurrentRound.CalculatePlayerSum();
+        var maxPossible = 21 - current;
+        var chance = 0f;
+
+        foreach (var (card, cardChance) in chances) {
+            switch (card) {
+                case IPointCard pointCard when condition(pointCard.GetPoints(), maxPossible):
+                case IMultiPointCard multiPointCard when condition(multiPointCard.GetPoints().Min(), maxPossible):
+                    chance += cardChance;
+                    break;
+            }
+        }
+
+        return chance;
+    }
+
+    private float GetChanceFor10Points(Dictionary<Card, float> chances) {
+        var chance = 0f;
+        foreach (var (card, cardChance) in chances) {
+            switch (card.GetRank()) {
+                case 10:
+                case 11:
+                case 12:
+                case 13:
+                    chance += cardChance;
+                    break;
+            }
+        }
+
+        return chance;
     }
 
     private void RemoveCard(Card card) {
@@ -174,7 +214,7 @@
         CurrentRound.PlayerHand.Remove(card);
         Cards.Add(card);
     }
-    
+
     private void RemoveHouseCard(Card card) {
         CurrentRound.HouseHand.Remove(card);
         Cards.Add(card);
