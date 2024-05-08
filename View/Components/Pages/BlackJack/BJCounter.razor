@@ -203,10 +203,7 @@
     private async Task RemoveCard() {
         var dialog = await DialogService.ShowAsync<PickCardDialog>("Add Card", DialogOptions);
         var result = await dialog.Result;
-        if (!result.Canceled && result.Data is Card card) {
-            CurrentRound.PlayerHand.Add(card);
-            RemoveCard(card);
-        }
+        if (!result.Canceled && result.Data is Card card) RemoveCard(card);
     }
 
     private async Task AddPlayerCard() {
